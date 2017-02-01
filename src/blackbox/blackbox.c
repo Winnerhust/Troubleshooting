@@ -11,7 +11,7 @@
         gcc –rdynamic blackbox.c –o blackbox 。
 2.  backtrace_symbols函数会输出出错时的16进制的地址，此时我们可以使用addr2line命令将其转换为我们具体的代码行数，
     在编译选项中需要加上 –rdynamic -g 选项, 比如： 
-        gcc –rdynamic blackbox.c –o blackbox 。
+        gcc –rdynamic -g blackbox.c –o blackbox 。
     命令格式为：
         addr2line –e execute_file  addr ，比如  addr2line –e ./a.out 0x400d62
 */

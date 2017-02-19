@@ -4,6 +4,11 @@
 #include <signal.h>
 #include <execinfo.h>
 
+#include <sys/ptrace.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/user.h>
+
 /*
 注意：
 
@@ -16,12 +21,15 @@
         addr2line –e execute_file  addr ，比如  addr2line –e ./a.out 0x400d62
 */
         
+#define MAX_STACK_DEEP 20
+
 typedef struct tagSigInfo
 {
 	int signo;
 	char signame[20];
 }SigInfo_S;
 
+/* 需要处理的信号集合 */
 SigInfo_S g_stSigCatch[] = {
 	{1,  "SIGHUP"},
 	{2,  "SIGINT"},
@@ -33,20 +41,27 @@ SigInfo_S g_stSigCatch[] = {
 
 typedef void (*sa_handler_func)(int);
 
-void sig_handler(int signo)
+
+void print_func_trace(int max_stack_deep)
 {
-	void *buffer[100];
+	void** buffer;
 	char** sym_stacks;
-	int cnt;
+	int deep;
 
-	printf("=====SIG INFO=====\n");
-	printf("sig name:%s\n",strsignal(signo));
-	printf("sig no:%d\n",signo);
+	buffer = malloc(max_stack_deep * sizeof(void*));
 
-	cnt = backtrace(buffer,100);
-	printf("sym stack deep:%d\n",cnt);
+	if (buffer == NULL)
+	{
+		printf("print_func_trace malloc error\n");
+		return;
+	}
 
-	sym_stacks = backtrace_symbols(buffer,cnt);
+    /* 获取函数调用栈 */
+	deep = backtrace(buffer,max_stack_deep);
+	printf("function stack deep:%d\n",deep);
+
+    /* 获取函数调用栈名称 */
+	sym_stacks = backtrace_symbols(buffer,deep);
 
 	if (sym_stacks == NULL)
 	{
@@ -54,16 +69,35 @@ void sig_handler(int signo)
 		return;
 	}
 
-	for (int i = 0; i < cnt; ++i)
+    /* 打印函数调用栈*/
+	for (int i = 0; i < deep; ++i)
 	{
 		printf("%s\n", sym_stacks[i]);
 	}
 
+	free(buffer);
 	free(sym_stacks);
 
-	exit(0);
+    return;
 }
 
+void sig_handler(int signo)
+{
+	printf("=====BLACKOBX INFO=====\n");
+
+    /* 打印信号名称和信号值 */
+	printf("sig name:%s\n",strsignal(signo));
+	printf("sig no:%d\n",signo);
+
+    /* 打印函数调用栈名称 */
+    print_func_trace(MAX_STACK_DEEP);
+
+    exit(0);
+
+    return;
+}
+
+/* 避免栈溢出时无法处理，信号处理函数使用自定义的栈空间 */
 int sig_stack_init()
 {
 	stack_t ss;
@@ -75,6 +109,7 @@ int sig_stack_init()
 	return sigaltstack(&ss, NULL);
 }
 
+/* 注册信号处理函数 */
 int sig_handler_init(SigInfo_S* stSigInfos, int size, sa_handler_func handler, int sa_flags)
 {
 	int i = 0;
@@ -101,40 +136,87 @@ int sig_handler_init(SigInfo_S* stSigInfos, int size, sa_handler_func handler, i
 
 }
 
+/* 信号处理函数 */
 int sig_init()
 {
 	int ret;
 
+	/* 避免栈溢出时无法处理，信号处理函数使用自定义的栈空间 */
 	ret = sig_stack_init();
+
+	/* 注册信号处理函数 */
 	ret |= sig_handler_init(g_stSigCatch, sizeof(g_stSigCatch)/sizeof(SigInfo_S),
 	                        sig_handler, SA_ONSTACK);
 
 	return ret;
 }
 
-void foo()
+
+void float_bug_func()
 {
-	int a =0;
-	int b = 0;
-	int c;
+	int a=0xcc;
+    int b=0;
+    int c=0xdd;
 
-	c=a/b;
+    c = a/b;
 
-	(void)c;
-
+    (void)c;
 	return;
 }
 
-void bug_func()
+void stack_overflow_bug_func()
 {
-	foo();
+	int a[100];
+
+    stack_overflow_bug_func();
+
+    (void)a;
+	return;
+}
+
+void write_error_bug_func(void * ptr)
+{
+    int a = 0xcc;
+    memset(ptr, 0, a);
+    return;
+}
+
+void bug_func(int bug_type)
+{
+    switch(bug_type)
+    {
+	    case 0:
+            float_bug_func();
+            break;
+
+        case 1:
+            stack_overflow_bug_func();
+            break;
+        case 2:
+            write_error_bug_func(NULL);
+            break;
+
+        default:
+            break;
+
+    }
+
+    return;
 }
 
 int main(int argc, char const *argv[])
 {
+    int bug_type = 0;
+
+    /* 注册信号处理函数 */
 	sig_init();
 
-	bug_func();
+    if (argc > 1)
+    {
+        bug_type = atoi(argv[1]);
+    }
+
+	bug_func(bug_type);
 	
 	return 0;
 }

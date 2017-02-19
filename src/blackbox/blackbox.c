@@ -47,6 +47,7 @@ void print_func_trace(int max_stack_deep)
 	void** buffer;
 	char** sym_stacks;
 	int deep;
+    int i;
 
 	buffer = malloc(max_stack_deep * sizeof(void*));
 
@@ -70,7 +71,7 @@ void print_func_trace(int max_stack_deep)
 	}
 
     /* 打印函数调用栈*/
-	for (int i = 0; i < deep; ++i)
+	for (i = 0; i < deep; ++i)
 	{
 		printf("%s\n", sym_stacks[i]);
 	}
